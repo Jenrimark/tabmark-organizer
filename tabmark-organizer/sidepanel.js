@@ -322,21 +322,27 @@ $('#btnAi').addEventListener('click', async () => {
       tree = reorganized;
     }
 
-    const { added } = appendMissingBookmarks(tree, baseline);
+    // 先校验变更（不补回缺失书签），展示给用户
     const check = validateBookmarkIntegrity(tree, baseline);
 
     await saveWorkspace();
     render();
 
     let msg = aiResult.summary || 'AI 整理完成，请检查后应用回浏览器';
-    if (added > 0) msg += `（已自动补回 ${added} 条 AI 遗漏的书签）`;
 
     // 显示变更信息面板
     if (check.added.length > 0 || check.removed.length > 0) {
       showChangeInfo(check, baselineTree);
       setStatus(`${msg} · 检测到变更，请确认`, 'ok');
     } else {
-      setStatus(`${msg} · 共 ${check.count.current} 条`, 'ok');
+      // 没有增删变更，自动补回可能遗漏的书签
+      const { added } = appendMissingBookmarks(tree, baseline);
+      if (added > 0) {
+        await saveWorkspace();
+        render();
+        msg += `（已自动补回 ${added} 条 AI 遗漏的书签）`;
+      }
+      setStatus(`${msg} · 共 ${extractBookmarks(tree).length} 条`, 'ok');
     }
   } catch (err) {
     setStatus(err.message, 'error');
@@ -399,9 +405,19 @@ $('#btnRevertChanges').addEventListener('click', async () => {
   }
 });
 
-$('#btnAcceptChanges').addEventListener('click', () => {
+$('#btnAcceptChanges').addEventListener('click', async () => {
+  // 确认后补回可能遗漏的书签
+  const baseline = await getBookmarkBaseline();
+  const { added } = appendMissingBookmarks(tree, baseline);
+  if (added > 0) {
+    await saveWorkspace();
+    render();
+  }
   hideChangeInfo();
-  setStatus('已确认变更，可点击「应用回浏览器」写入', 'ok');
+  const total = extractBookmarks(tree).length;
+  let msg = '已确认变更，可点击「应用回浏览器」写入';
+  if (added > 0) msg += `（已自动补回 ${added} 条遗漏书签）`;
+  setStatus(`${msg} · 共 ${total} 条`, 'ok');
 });
 
 let pendingChanges = null;
@@ -509,8 +525,10 @@ $('#applyForm').addEventListener('submit', async (e) => {
     showProgress(100);
     await saveWorkspace();
     const removed = removeIds.length;
+    const cleanedFolders = result.removedFolders?.length || 0;
     let msg = `已应用回浏览器，共 ${result.bookmarkCount} 条书签`;
-    if (removed > 0) msg += `（已移除 ${removed} 条）`;
+    if (removed > 0) msg += `，移除 ${removed} 条`;
+    if (cleanedFolders > 0) msg += `，清理 ${cleanedFolders} 个空文件夹`;
     setStatus(msg, 'ok');
     setTimeout(hideProgress, 1500);
   } catch (err) {

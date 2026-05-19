@@ -127,7 +127,54 @@ export async function applyTreeToBrowser(nodes, options = {}) {
   const ids = [...collectChromeIds(nodes)];
   await chrome.storage.local.set({ [SNAPSHOT_KEY]: ids });
 
-  return { success: true, bookmarkCount: nodes.length };
+  // 清理空文件夹
+  const removedFolders = await cleanupEmptyFolders(rootIds);
+
+  return { success: true, bookmarkCount: nodes.length, removedFolders };
+}
+
+/**
+ * 清理 Chrome 中的空文件夹（系统根文件夹除外）
+ */
+async function cleanupEmptyFolders(rootIds) {
+  const removed = [];
+  const chromeTree = await chrome.bookmarks.getTree();
+
+  async function walkAndClean(node) {
+    if (!node.children) return; // 书签节点，跳过
+
+    const folderId = String(node.id);
+    if (rootIds.has(folderId)) {
+      // 系统根文件夹，只遍历子项
+      for (const child of node.children || []) {
+        await walkAndClean(child);
+      }
+      return;
+    }
+
+    // 先递归处理子项
+    for (const child of node.children || []) {
+      await walkAndClean(child);
+    }
+
+    // 重新获取子项（可能已被删除）
+    try {
+      const [fresh] = await chrome.bookmarks.getSubTree(folderId);
+      if (fresh.children && fresh.children.length === 0) {
+        await chrome.bookmarks.remove(folderId);
+        removed.push({ id: folderId, title: node.title });
+      }
+    } catch (e) {
+      // 文件夹可能已被删除，忽略
+    }
+  }
+
+  const root = chromeTree[0];
+  for (const child of root.children || []) {
+    await walkAndClean(child);
+  }
+
+  return removed;
 }
 
 async function applyNode(node, parentId, index, rootIds, onNodeDone) {
