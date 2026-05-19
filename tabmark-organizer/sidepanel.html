@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TabMark 整理器</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>TabMark</h1>
+      <p class="subtitle">浏览器书签 ↔ 插件内整理</p>
+    </div>
+    <button type="button" id="btnSettings" class="icon-btn" title="AI 设置">⚙</button>
+  </header>
+
+  <section class="toolbar">
+    <button type="button" id="btnPull" class="btn primary">从浏览器同步</button>
+    <button type="button" id="btnAddFolder" class="btn ghost">+ 文件夹</button>
+  </section>
+
+  <section class="toolbar secondary">
+    <label class="check">
+      <input type="checkbox" id="chkAutoSync" checked />
+      打开时自动同步
+    </label>
+    <button type="button" id="btnAi" class="btn accent">✦ AI 整理</button>
+    <button type="button" id="btnApply" class="btn success">应用回浏览器</button>
+  </section>
+
+  <div id="status" class="status" hidden></div>
+
+  <main class="tree-wrap">
+    <ul id="treeRoot" class="tree" role="tree"></ul>
+    <p id="emptyHint" class="empty">点击「从浏览器同步」加载你的书签</p>
+  </main>
+
+  <dialog id="settingsDialog">
+    <form id="settingsForm" method="dialog">
+      <h2>AI 服务商设置</h2>
+      <p class="hint">选择预设或添加自定义；需兼容 OpenAI Chat Completions 格式</p>
+
+      <label>服务商
+        <select name="providerId" id="providerSelect"></select>
+      </label>
+
+      <div id="customProviderBlock" class="custom-block" hidden>
+        <label>显示名称<input name="providerName" type="text" placeholder="我的 API" /></label>
+        <div class="inline-btns">
+          <button type="button" id="btnSaveCustomProvider" class="btn ghost btn-sm">保存到「我的服务商」</button>
+          <button type="button" id="btnDeleteCustomProvider" class="btn ghost btn-sm danger" hidden>删除此项</button>
+        </div>
+      </div>
+
+      <label>API 基础地址
+        <input name="apiUrl" type="url" placeholder="https://api.openai.com/v1" />
+        <span class="field-hint">填到 /v1，不含 /chat/completions</span>
+      </label>
+      <label>接口路径
+        <input name="chatPath" type="text" placeholder="/chat/completions" value="/chat/completions" />
+      </label>
+      <label>API Key<input name="apiKey" type="password" placeholder="sk-..." autocomplete="off" /></label>
+      <label>模型名称
+        <input name="model" type="text" placeholder="gpt-4o-mini" />
+        <span class="field-hint">小米 MiMo 请填 mimo-v2-flash 或 mimo-v2-pro</span>
+      </label>
+
+      <div class="dialog-actions">
+        <button type="button" id="btnTestAi" class="btn ghost">测试连接</button>
+        <button type="button" id="btnCancelSettings" class="btn ghost">取消</button>
+        <button type="submit" class="btn primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="applyDialog">
+    <form id="applyForm" method="dialog">
+      <h2>应用回浏览器书签</h2>
+      <p class="hint">按原书签 ID 更新标题、位置与文件夹结构</p>
+      <label class="radio">
+        <input type="checkbox" name="deleteRemoved" />
+        删除插件中已移除的书签（浏览器中一并删除）
+      </label>
+      <div class="dialog-actions">
+        <button type="button" id="btnCancelApply" class="btn ghost">取消</button>
+        <button type="submit" class="btn success">确认应用</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
