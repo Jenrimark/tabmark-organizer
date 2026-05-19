@@ -259,6 +259,7 @@ async function pullFromBrowser(confirmOverwrite = true) {
   }
   setStatus('正在从浏览器同步书签…', 'loading');
   showProgress(0);
+  hideChangeInfo();
   $('#btnPull').disabled = true;
   try {
     tree = await syncFromBrowser();
@@ -295,6 +296,7 @@ $('#btnAi').addEventListener('click', async () => {
     return;
   }
   setStatus('AI 正在分析并整理…', 'loading');
+  hideChangeInfo();
   $('#btnAi').disabled = true;
   try {
     const settings = await loadAiSettings();
@@ -303,6 +305,7 @@ $('#btnAi').addEventListener('click', async () => {
     flat.forEach((x) => urlMap.set(x.id, x));
 
     const baseline = await getBookmarkBaseline();
+    const baselineTree = cloneTree(tree);
     const aiResult = await organizeWithAi(flat, settings);
     const reorganized = buildFromAiStructure(aiResult, urlMap);
     const topFolders = tree.filter((n) => n.type === 'folder' && n.chromeId);
@@ -321,20 +324,84 @@ $('#btnAi').addEventListener('click', async () => {
 
     const { added } = appendMissingBookmarks(tree, baseline);
     const check = validateBookmarkIntegrity(tree, baseline);
-    if (!check.ok) {
-      throw new Error(check.message);
-    }
 
     await saveWorkspace();
     render();
+
     let msg = aiResult.summary || 'AI 整理完成，请检查后应用回浏览器';
     if (added > 0) msg += `（已自动补回 ${added} 条 AI 遗漏的书签）`;
-    setStatus(`${msg} · 共 ${check.count} 条`, 'ok');
+
+    // 显示变更信息面板
+    if (check.added.length > 0 || check.removed.length > 0) {
+      showChangeInfo(check, baselineTree);
+      setStatus(`${msg} · 检测到变更，请确认`, 'ok');
+    } else {
+      setStatus(`${msg} · 共 ${check.count.current} 条`, 'ok');
+    }
   } catch (err) {
     setStatus(err.message, 'error');
   } finally {
     $('#btnAi').disabled = false;
   }
+});
+
+// ── Change Info Panel ──
+let preAiTree = null;
+
+function showChangeInfo(check, baselineTree) {
+  preAiTree = baselineTree;
+  const panel = $('#changeInfo');
+  const summary = $('#changeInfoSummary');
+  const addedSection = $('#changeInfoAdded');
+  const removedSection = $('#changeInfoRemoved');
+  const addedList = $('#changeInfoAddedList');
+  const removedList = $('#changeInfoRemovedList');
+
+  summary.innerHTML = `基准 <b>${check.count.baseline}</b> 条 → 当前 <b>${check.count.current}</b> 条` +
+    (check.added.length ? `，新增 <b style="color:var(--success)">${check.added.length}</b> 条` : '') +
+    (check.removed.length ? `，删除 <b style="color:var(--danger)">${check.removed.length}</b> 条` : '');
+
+  if (check.added.length) {
+    addedSection.hidden = false;
+    addedList.innerHTML = check.added.map((b) =>
+      `<li class="ci-added"><span class="ci-title">${escapeHtml(b.title)}</span><span class="ci-url">${escapeHtml(b.url)}</span></li>`
+    ).join('');
+  } else {
+    addedSection.hidden = true;
+  }
+
+  if (check.removed.length) {
+    removedSection.hidden = false;
+    removedList.innerHTML = check.removed.map((b) =>
+      `<li class="ci-removed"><span class="ci-title">${escapeHtml(b.title)}</span><span class="ci-url">${escapeHtml(b.url)}</span></li>`
+    ).join('');
+  } else {
+    removedSection.hidden = true;
+  }
+
+  panel.hidden = false;
+}
+
+function hideChangeInfo() {
+  $('#changeInfo').hidden = true;
+  preAiTree = null;
+}
+
+$('#btnDismissChange').addEventListener('click', hideChangeInfo);
+
+$('#btnRevertChanges').addEventListener('click', async () => {
+  if (preAiTree) {
+    tree = preAiTree;
+    await saveWorkspace();
+    render();
+    hideChangeInfo();
+    setStatus('已撤销 AI 变更，恢复到整理前状态', 'ok');
+  }
+});
+
+$('#btnAcceptChanges').addEventListener('click', () => {
+  hideChangeInfo();
+  setStatus('已确认变更，可点击「应用回浏览器」写入', 'ok');
 });
 
 let pendingChanges = null;

@@ -119,6 +119,101 @@ body {
   padding: 0 8px 16px;
 }
 
+/* ── Change Info Panel ── */
+.change-info {
+  margin: 0 12px 8px;
+  background: var(--surface);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.change-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: rgba(245, 166, 35, 0.1);
+  border-bottom: 1px solid rgba(245, 166, 35, 0.2);
+}
+.change-info-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warn);
+}
+.btn-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  line-height: 1;
+}
+.btn-close:hover { color: var(--text); }
+.change-info-summary {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text);
+  border-bottom: 1px dashed var(--border);
+}
+.change-info-body {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+.change-info-section {
+  padding: 4px 10px;
+}
+.change-info-section h4 {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.change-info-list {
+  list-style: none;
+  font-size: 11px;
+}
+.change-info-list li {
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+.change-info-list li .ci-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.change-info-list li .ci-url {
+  font-size: 9px;
+  color: var(--muted);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.change-info-list li.ci-added {
+  background: rgba(52, 199, 89, 0.1);
+  border: 1px solid rgba(52, 199, 89, 0.2);
+}
+.change-info-list li.ci-removed {
+  background: rgba(255, 92, 92, 0.1);
+  border: 1px solid rgba(255, 92, 92, 0.2);
+}
+.change-info-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+
 .empty {
   text-align: center;
   color: var(--muted);

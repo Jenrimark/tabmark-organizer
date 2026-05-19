@@ -56,6 +56,28 @@
     </div>
   </div>
 
+  <div id="changeInfo" class="change-info" hidden>
+    <div class="change-info-header">
+      <span class="change-info-title">⚠ 书签变更检测</span>
+      <button type="button" id="btnDismissChange" class="btn-close" title="关闭">×</button>
+    </div>
+    <div id="changeInfoSummary" class="change-info-summary"></div>
+    <div class="change-info-body">
+      <div id="changeInfoAdded" class="change-info-section" hidden>
+        <h4>✦ 新增书签（AI 添加）</h4>
+        <ul id="changeInfoAddedList" class="change-info-list"></ul>
+      </div>
+      <div id="changeInfoRemoved" class="change-info-section" hidden>
+        <h4>✕ 删除书签（AI 移除）</h4>
+        <ul id="changeInfoRemovedList" class="change-info-list"></ul>
+      </div>
+    </div>
+    <div class="change-info-actions">
+      <button type="button" id="btnRevertChanges" class="btn ghost">撤销变更</button>
+      <button type="button" id="btnAcceptChanges" class="btn primary">确认保留</button>
+    </div>
+  </div>
+
   <main class="tree-wrap">
     <ul id="treeRoot" class="tree" role="tree"></ul>
     <p id="emptyHint" class="empty">点击「从浏览器同步」加载你的书签</p>
