@@ -5,6 +5,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Jenrimark/tabmark-organizer"><img src="https://img.shields.io/github/stars/Jenrimark/tabmark-organizer?style=social" alt="GitHub Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
   <img src="https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white" alt="Chrome MV3">
   <img src="https://img.shields.io/badge/Platform-Chromium%20%7C%20Edge-99aab5" alt="Platform">
@@ -87,8 +88,8 @@ Chrome 书签  ──从浏览器同步──►  插件侧栏编辑  ──应�
 1. 克隆仓库：
 
    ```bash
-   git clone https://github.com/YOUR_USERNAME/TabMark-AI.git
-   cd TabMark-AI
+   git clone https://github.com/Jenrimark/tabmark-organizer.git
+   cd tabmark-organizer
    ```
 
 2. 打开浏览器扩展管理页：
@@ -270,8 +271,8 @@ Chrome 禁止修改系统根目录。请：
 
 ```bash
 # 克隆
-git clone https://github.com/YOUR_USERNAME/TabMark-AI.git
-cd TabMark-AI
+git clone https://github.com/Jenrimark/tabmark-organizer.git
+cd tabmark-organizer
 
 # 无需 npm install，改代码后在 chrome://extensions/ 重新加载即可
 ```
@@ -306,7 +307,7 @@ cd TabMark-AI
 本项目采用 **[Apache License 2.0](LICENSE)** 开源。
 
 ```text
-Copyright 2026 TabMark Contributors
+Copyright 2026 Jenrimark
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
