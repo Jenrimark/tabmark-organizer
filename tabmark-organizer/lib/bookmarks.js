@@ -143,7 +143,6 @@ async function applyNode(node, parentId, index, rootIds, onNodeDone) {
       const created = await chrome.bookmarks.create({
         parentId: String(parentId),
         title: node.title,
-        index,
       });
       folderId = String(created.id);
       node.chromeId = folderId;
@@ -153,10 +152,11 @@ async function applyNode(node, parentId, index, rootIds, onNodeDone) {
     } else {
       await chrome.bookmarks.update(folderId, { title: node.title });
       if (parentId != null) {
-        await chrome.bookmarks.move(folderId, {
-          parentId: String(parentId),
-          index,
-        });
+        try {
+          await chrome.bookmarks.move(folderId, { parentId: String(parentId) });
+        } catch (e) {
+          // 移动失败时忽略（可能位置未变）
+        }
       }
     }
 
@@ -184,7 +184,6 @@ async function applyNode(node, parentId, index, rootIds, onNodeDone) {
       parentId: String(parentId),
       title: node.title,
       url: node.url,
-      index,
     });
     node.chromeId = String(created.id);
     node.id = `chrome_${node.chromeId}`;
@@ -201,10 +200,11 @@ async function applyNode(node, parentId, index, rootIds, onNodeDone) {
   assertNotRoot(bmId, '不能修改', node.title);
   await chrome.bookmarks.update(bmId, { title: node.title, url: node.url });
   if (parentId != null) {
-    await chrome.bookmarks.move(bmId, {
-      parentId: String(parentId),
-      index,
-    });
+    try {
+      await chrome.bookmarks.move(bmId, { parentId: String(parentId) });
+    } catch (e) {
+      // 移动失败时忽略（可能位置未变）
+    }
   }
   if (onNodeDone) onNodeDone();
 }
