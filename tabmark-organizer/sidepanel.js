@@ -19,6 +19,13 @@ import {
   getBuiltinProvider,
   getAllProviderOptions,
 } from './lib/providers.js';
+import {
+  saveBookmarkBaseline,
+  getBookmarkBaseline,
+  validateBookmarkIntegrity,
+  appendMissingBookmarks,
+  extractBookmarks,
+} from './lib/integrity.js';
 
 const STORAGE_KEY = 'workspaceTree';
 
@@ -37,8 +44,60 @@ function setStatus(msg, type = 'ok') {
   statusEl.className = `status ${type}`;
 }
 
+// ── Progress Bar ──
+function showProgress(percent, text) {
+  const bar = $('#progressBar');
+  const fill = bar.querySelector('.progress-fill');
+  const label = bar.querySelector('.progress-text');
+  bar.hidden = false;
+  fill.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+  label.textContent = text || `${Math.round(percent)}%`;
+}
+
+function hideProgress() {
+  $('#progressBar').hidden = true;
+  $('#progressBar').querySelector('.progress-fill').style.width = '0%';
+}
+
+// ── Stats Bar ──
+function updateStatsBar() {
+  const bookmarks = extractBookmarks(tree);
+  const domains = new Set();
+  bookmarks.forEach((b) => {
+    try { domains.add(new URL(b.url).hostname); } catch {}
+  });
+  const folderCount = (function countFolders(nodes) {
+    let c = 0;
+    for (const n of nodes) {
+      if (n.type === 'folder') { c++; c += countFolders(n.children || []); }
+    }
+    return c;
+  })(tree);
+
+  const statsBar = $('#statsBar');
+  statsBar.hidden = !tree.length;
+  $('#statTotal').textContent = bookmarks.length;
+  $('#statFolders').textContent = folderCount;
+  $('#statDomains').textContent = domains.size;
+  chrome.storage.local.get('lastSyncTime', (d) => {
+    $('#statSyncTime').textContent = d.lastSyncTime || '-';
+  });
+}
+
 async function saveWorkspace() {
   await chrome.storage.local.set({ [STORAGE_KEY]: tree });
+}
+
+function updateBookmarkCountUI() {
+  const el = $('#bookmarkCount');
+  const n = extractBookmarks(tree).length;
+  if (!n) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  el.textContent = `当前 ${n} 条书签`;
+  updateStatsBar();
 }
 
 async function loadWorkspace() {
@@ -53,6 +112,7 @@ function render() {
   treeRoot.innerHTML = '';
   emptyHint.hidden = tree.length > 0;
   tree.forEach((node) => treeRoot.appendChild(renderNode(node, 0)));
+  updateBookmarkCountUI();
 }
 
 function renderNode(node, depth) {
@@ -88,8 +148,7 @@ function renderNode(node, depth) {
   actions.className = 'tree-actions';
   actions.innerHTML = `
     <button type="button" data-act="rename" title="重命名">✎</button>
-    <button type="button" data-act="delete" title="删除">✕</button>
-    ${node.type === 'folder' ? '<button type="button" data-act="add-child" title="添加子项">+</button>' : ''}
+    ${node.type === 'folder' && !isRoot ? '<button type="button" data-act="add-folder" title="新建子文件夹">+</button>' : ''}
   `;
 
   row.append(icon, title, url, actions);
@@ -120,27 +179,12 @@ function bindRowEvents(row, li, node, titleEl) {
     }
     startRename(titleEl, node);
   });
-  row.querySelector('[data-act="delete"]')?.addEventListener('click', () => {
-    if (isRootFolderNode(node)) {
-      setStatus('系统文件夹不能删除', 'error');
-      return;
-    }
-    removeNode(tree, node.id);
-    if (selectedId === node.id) selectedId = null;
+  row.querySelector('[data-act="add-folder"]')?.addEventListener('click', () => {
+    node.children = node.children || [];
+    node.children.push(createFolder('新子文件夹'));
     saveWorkspace();
     render();
-  });
-  row.querySelector('[data-act="add-child"]')?.addEventListener('click', () => {
-    const folder = node;
-    folder.children = folder.children || [];
-    folder.children.push({
-      id: `n_${Date.now()}`,
-      title: '新标签',
-      url: 'https://',
-      type: 'bookmark',
-    });
-    saveWorkspace();
-    render();
+    updateBookmarkCountUI();
   });
 
   row.addEventListener('dragstart', (e) => {
@@ -214,15 +258,24 @@ async function pullFromBrowser(confirmOverwrite = true) {
     if (!ok) return;
   }
   setStatus('正在从浏览器同步书签…', 'loading');
+  showProgress(0);
   $('#btnPull').disabled = true;
   try {
     tree = await syncFromBrowser();
+    showProgress(50);
+    const count = await saveBookmarkBaseline(tree);
+    showProgress(80);
+    const now = new Date();
+    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    await chrome.storage.local.set({ lastSyncTime: timeStr });
     await saveWorkspace();
+    showProgress(100);
     render();
-    const count = flattenTree(tree).length;
-    setStatus(`已同步 ${count} 个书签到插件`, 'ok');
+    setStatus(`已同步 ${count} 条书签`, 'ok');
+    setTimeout(hideProgress, 1500);
   } catch (err) {
     setStatus(err.message, 'error');
+    hideProgress();
   } finally {
     $('#btnPull').disabled = false;
   }
@@ -249,6 +302,7 @@ $('#btnAi').addEventListener('click', async () => {
     const urlMap = new Map(flat.map((x) => [x.url, x]));
     flat.forEach((x) => urlMap.set(x.id, x));
 
+    const baseline = await getBookmarkBaseline();
     const aiResult = await organizeWithAi(flat, settings);
     const reorganized = buildFromAiStructure(aiResult, urlMap);
     const topFolders = tree.filter((n) => n.type === 'folder' && n.chromeId);
@@ -264,9 +318,18 @@ $('#btnAi').addEventListener('click', async () => {
     } else {
       tree = reorganized;
     }
+
+    const { added } = appendMissingBookmarks(tree, baseline);
+    const check = validateBookmarkIntegrity(tree, baseline);
+    if (!check.ok) {
+      throw new Error(check.message);
+    }
+
     await saveWorkspace();
     render();
-    setStatus(aiResult.summary || 'AI 整理完成，请检查后应用回浏览器', 'ok');
+    let msg = aiResult.summary || 'AI 整理完成，请检查后应用回浏览器';
+    if (added > 0) msg += `（已自动补回 ${added} 条 AI 遗漏的书签）`;
+    setStatus(`${msg} · 共 ${check.count} 条`, 'ok');
   } catch (err) {
     setStatus(err.message, 'error');
   } finally {
@@ -274,29 +337,127 @@ $('#btnAi').addEventListener('click', async () => {
   }
 });
 
-$('#btnApply').addEventListener('click', () => {
+let pendingChanges = null;
+
+$('#btnApply').addEventListener('click', async () => {
   if (!tree.length) {
     setStatus('没有可应用的内容', 'error');
     return;
   }
+  const baseline = await getBookmarkBaseline();
+  const check = validateBookmarkIntegrity(tree, baseline);
+  pendingChanges = check;
+
+  const summary = $('#applySummary');
+  const changePanel = $('#changePanel');
+  const addedSection = $('#addedSection');
+  const removedSection = $('#removedSection');
+  const addedList = $('#addedList');
+  const removedList = $('#removedList');
+  const btnKeepAll = $('#btnKeepAll');
+
+  // 摘要
+  if (check.ok) {
+    summary.innerHTML = `<span class="count-ok">✓ 书签数量一致</span>，将写回 ${check.count.current} 条书签`;
+    changePanel.hidden = true;
+    btnKeepAll.hidden = true;
+  } else {
+    summary.innerHTML = `<span class="count-warn">⚠ 检测到变更</span>：基准 ${check.count.baseline} 条 → 当前 ${check.count.current} 条`;
+    changePanel.hidden = false;
+
+    // 新增列表
+    if (check.added.length) {
+      addedSection.hidden = false;
+      addedList.innerHTML = check.added.map((b) =>
+        `<li class="added-item"><span class="change-title">${escapeHtml(b.title)}</span><span class="change-url">${escapeHtml(b.url)}</span></li>`
+      ).join('');
+    } else {
+      addedSection.hidden = true;
+    }
+
+    // 删除列表
+    if (check.removed.length) {
+      removedSection.hidden = false;
+      removedList.innerHTML = check.removed.map((b) =>
+        `<li class="removed-item"><span class="change-title">${escapeHtml(b.title)}</span><span class="change-url">${escapeHtml(b.url)}</span></li>`
+      ).join('');
+    } else {
+      removedSection.hidden = true;
+    }
+
+    btnKeepAll.hidden = !check.removed.length;
+  }
+
   $('#applyDialog').showModal();
 });
 
-$('#btnCancelApply').addEventListener('click', () => $('#applyDialog').close());
+$('#btnKeepAll').addEventListener('click', async () => {
+  if (!pendingChanges?.removed?.length) return;
+  const baseline = await getBookmarkBaseline();
+  const baselineMap = new Map(baseline.map((b) => [String(b.chromeId), b]));
+  const bar = tree.find((n) => n.type === 'folder' && (n.title === '书签栏' || n.title === 'Bookmarks bar'));
+  const target = bar || tree[0];
+  if (!target) return;
+  target.children = target.children || [];
+
+  for (const r of pendingChanges.removed) {
+    const b = baselineMap.get(r.chromeId);
+    if (b) {
+      target.children.push({
+        id: `chrome_${b.chromeId}`,
+        chromeId: String(b.chromeId),
+        title: b.title || b.url,
+        url: b.url,
+        type: 'bookmark',
+      });
+    }
+  }
+
+  pendingChanges = validateBookmarkIntegrity(tree, await getBookmarkBaseline());
+  $('#applyDialog').close();
+  await saveWorkspace();
+  render();
+  setStatus(`已恢复 ${pendingChanges.removed?.length || 0} 条被删除的书签`, 'ok');
+});
+
+$('#btnCancelApply').addEventListener('click', () => {
+  pendingChanges = null;
+  $('#applyDialog').close();
+});
 
 $('#applyForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   $('#applyDialog').close();
-  const deleteRemoved = new FormData(e.target).get('deleteRemoved') === 'on';
   setStatus('正在写回浏览器书签…', 'loading');
+  showProgress(0);
   try {
-    await applyTreeToBrowser(cloneTree(tree), { deleteRemoved });
+    const removeIds = pendingChanges?.removed?.map((r) => r.chromeId) || [];
+    const result = await applyTreeToBrowser(cloneTree(tree), {
+      removeChromeIds: removeIds,
+      onProgress: (current, total) => {
+        const pct = total > 0 ? (current / total) * 100 : 100;
+        showProgress(pct, `${current}/${total}`);
+      },
+    });
+    showProgress(100);
     await saveWorkspace();
-    setStatus('已应用回浏览器，书签栏已更新', 'ok');
+    const removed = removeIds.length;
+    let msg = `已应用回浏览器，共 ${result.bookmarkCount} 条书签`;
+    if (removed > 0) msg += `（已移除 ${removed} 条）`;
+    setStatus(msg, 'ok');
+    setTimeout(hideProgress, 1500);
   } catch (err) {
     setStatus(err.message, 'error');
+    hideProgress();
   }
+  pendingChanges = null;
 });
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
 
 $('#chkAutoSync').addEventListener('change', async (e) => {
   await chrome.storage.local.set({ autoSyncOnOpen: e.target.checked });

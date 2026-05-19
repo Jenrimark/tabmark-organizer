@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TabMark · AI 浏览器书签整理",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "将浏览器书签同步到侧栏整理，AI 智能归类命名，并写回 Chrome 原位置",
   "permissions": ["bookmarks", "storage", "sidePanel"],
   "host_permissions": [

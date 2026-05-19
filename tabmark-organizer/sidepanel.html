@@ -10,7 +10,8 @@
   <header class="header">
     <div>
       <h1>TabMark</h1>
-      <p class="subtitle">浏览器书签 ↔ 插件内整理</p>
+      <p class="subtitle">拖拽整理 · AI 智能归类 · 安全写回浏览器</p>
+      <p id="bookmarkCount" class="bookmark-count" hidden></p>
     </div>
     <button type="button" id="btnSettings" class="icon-btn" title="AI 设置">⚙</button>
   </header>
@@ -30,6 +31,30 @@
   </section>
 
   <div id="status" class="status" hidden></div>
+
+  <div id="progressBar" class="progress-bar" hidden>
+    <div class="progress-fill"></div>
+    <span class="progress-text">0%</span>
+  </div>
+
+  <div id="statsBar" class="stats-bar" hidden>
+    <div class="stat-card">
+      <span class="stat-num" id="statTotal">0</span>
+      <span class="stat-label">总书签</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num" id="statFolders">0</span>
+      <span class="stat-label">文件夹</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num" id="statDomains">0</span>
+      <span class="stat-label">不同域名</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-num" id="statSyncTime">-</span>
+      <span class="stat-label">上次同步</span>
+    </div>
+  </div>
 
   <main class="tree-wrap">
     <ul id="treeRoot" class="tree" role="tree"></ul>
@@ -77,14 +102,22 @@
   <dialog id="applyDialog">
     <form id="applyForm" method="dialog">
       <h2>应用回浏览器书签</h2>
-      <p class="hint">按原书签 ID 更新标题、位置与文件夹结构</p>
-      <label class="radio">
-        <input type="checkbox" name="deleteRemoved" />
-        删除插件中已移除的书签（浏览器中一并删除）
-      </label>
+      <p class="hint">将更新标题、位置与文件夹分类，并同步新增/删除的书签变更。</p>
+      <div id="applySummary" class="apply-summary"></div>
+      <div id="changePanel" class="change-panel" hidden>
+        <div class="change-section" id="addedSection" hidden>
+          <h4>✦ 新增书签（将写入浏览器）</h4>
+          <ul id="addedList" class="change-list"></ul>
+        </div>
+        <div class="change-section" id="removedSection" hidden>
+          <h4>✕ 已删除书签（将从浏览器移除）</h4>
+          <ul id="removedList" class="change-list"></ul>
+        </div>
+      </div>
       <div class="dialog-actions">
+        <button type="button" id="btnKeepAll" class="btn ghost" hidden>全部保留</button>
         <button type="button" id="btnCancelApply" class="btn ghost">取消</button>
-        <button type="submit" class="btn success">确认应用</button>
+        <button type="submit" class="btn success" id="btnConfirmApply">确认应用</button>
       </div>
     </form>
   </dialog>

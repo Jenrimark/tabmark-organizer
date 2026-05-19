@@ -1,9 +1,10 @@
+import { validateBookmarkIntegrity, getBookmarkBaseline } from './integrity.js';
+
 export const SNAPSHOT_KEY = 'bookmarkIdSnapshot';
 
 /** 运行时缓存：Chrome 根节点(0)及其下所有系统文件夹 */
 let cachedRootFolderIds = null;
 
-/** 从 Chrome 读取当前所有不可修改的系统根文件夹 id */
 export async function refreshRootFolderIds() {
   const [root] = await chrome.bookmarks.getTree();
   const ids = new Set([String(root.id)]);
@@ -38,7 +39,6 @@ function assertValidParentId(parentId) {
   }
 }
 
-/** 从 Chrome 读取完整书签树（保留 chromeId 以便写回） */
 export async function syncFromBrowser() {
   await refreshRootFolderIds();
   const chromeTree = await chrome.bookmarks.getTree();
@@ -70,7 +70,6 @@ function convertChromeNodes(nodes) {
   });
 }
 
-/** 收集树中全部 chromeId */
 export function collectChromeIds(nodes, set = new Set()) {
   for (const n of nodes) {
     if (n.chromeId) set.add(String(n.chromeId));
@@ -80,38 +79,58 @@ export function collectChromeIds(nodes, set = new Set()) {
 }
 
 /**
- * 将插件内编辑后的树写回 Chrome 书签（原位更新/移动/新建）
+ * 统计树中所有需要处理的节点数量
+ */
+function countNodes(nodes) {
+  let count = 0;
+  for (const n of nodes) {
+    count++;
+    if (n.children?.length) count += countNodes(n.children);
+  }
+  return count;
+}
+
+/**
+ * 写回 Chrome：更新标题、URL、位置；可新建文件夹；支持增删书签
+ * @param {Array} nodes - 树节点
+ * @param {Object} options - 选项
+ * @param {Function} options.onProgress - 进度回调 (current, total)
+ * @param {Array} options.removeChromeIds - 需要从浏览器删除的书签 chromeId 列表
  */
 export async function applyTreeToBrowser(nodes, options = {}) {
-  const { deleteRemoved = false } = options;
-  const rootIds = await refreshRootFolderIds();
+  const { onProgress, removeChromeIds } = options;
 
-  for (let i = 0; i < nodes.length; i++) {
-    await applyNode(nodes[i], null, i, rootIds);
+  const rootIds = await refreshRootFolderIds();
+  const total = countNodes(nodes) + (removeChromeIds?.length || 0);
+  let current = 0;
+
+  // 先处理删除
+  if (removeChromeIds?.length) {
+    for (const chromeId of removeChromeIds) {
+      try {
+        await chrome.bookmarks.remove(chromeId);
+      } catch (e) {
+        // 书签可能已经被删除，忽略
+      }
+      current++;
+      if (onProgress) onProgress(current, total);
+    }
   }
 
-  if (deleteRemoved) {
-    const { [SNAPSHOT_KEY]: snapshot = [] } = await chrome.storage.local.get(SNAPSHOT_KEY);
-    const afterIds = collectChromeIds(nodes);
-    for (const id of snapshot) {
-      if (rootIds.has(String(id))) continue;
-      if (!afterIds.has(String(id))) {
-        try {
-          await chrome.bookmarks.removeTree(id);
-        } catch {
-          /* 可能已被删除 */
-        }
-      }
-    }
+  for (let i = 0; i < nodes.length; i++) {
+    await applyNode(nodes[i], null, i, rootIds, () => {
+      current++;
+      if (onProgress) onProgress(current, total);
+    });
   }
 
   const ids = [...collectChromeIds(nodes)];
   await chrome.storage.local.set({ [SNAPSHOT_KEY]: ids });
 
-  return { success: true };
+  return { success: true, bookmarkCount: nodes.length };
 }
 
-async function applyNode(node, parentId, index, rootIds) {
+async function applyNode(node, parentId, index, rootIds, onNodeDone) {
   assertValidParentId(parentId);
 
   if (node.type === 'folder') {
@@ -130,7 +149,7 @@ async function applyNode(node, parentId, index, rootIds) {
       node.chromeId = folderId;
       node.id = `chrome_${folderId}`;
     } else if (rootIds.has(folderId)) {
-      // 系统根文件夹：不 update / 不 move，只同步其子项
+      // 系统根文件夹：只同步子项
     } else {
       await chrome.bookmarks.update(folderId, { title: node.title });
       if (parentId != null) {
@@ -142,27 +161,24 @@ async function applyNode(node, parentId, index, rootIds) {
     }
 
     const children = node.children || [];
-    const childParent = folderId;
     for (let i = 0; i < children.length; i++) {
-      await applyNode(children[i], childParent, i, rootIds);
+      await applyNode(children[i], folderId, i, rootIds, onNodeDone);
     }
+    if (onNodeDone) onNodeDone();
     return;
   }
 
-  // bookmark
-  if (!node.url) return;
-
-  let bmId = node.chromeId ? String(node.chromeId) : null;
-
-  if (bmId && rootIds.has(bmId)) {
-    throw new Error(
-      `「${node.title}」被识别为系统目录，不能当作书签写回。请重新「从浏览器同步」后再整理。`
-    );
+  if (!node.url) {
+    if (onNodeDone) onNodeDone();
+    return;
   }
 
+  const bmId = node.chromeId ? String(node.chromeId) : null;
+
   if (!bmId) {
+    // 新增书签：创建
     if (parentId == null) {
-      throw new Error(`无法在无父文件夹下创建书签「${node.title}」`);
+      throw new Error(`无法在顶级新增书签「${node.title}」，请放在「书签栏」等目录内`);
     }
     const created = await chrome.bookmarks.create({
       parentId: String(parentId),
@@ -170,34 +186,29 @@ async function applyNode(node, parentId, index, rootIds) {
       url: node.url,
       index,
     });
-    bmId = String(created.id);
-    node.chromeId = bmId;
-    node.id = `chrome_${bmId}`;
-  } else {
-    assertNotRoot(bmId, '不能修改', node.title);
-    await chrome.bookmarks.update(bmId, { title: node.title, url: node.url });
-    if (parentId != null) {
-      await chrome.bookmarks.move(bmId, {
-        parentId: String(parentId),
-        index,
-      });
-    }
+    node.chromeId = String(created.id);
+    node.id = `chrome_${node.chromeId}`;
+    if (onNodeDone) onNodeDone();
+    return;
   }
+
+  if (rootIds.has(bmId)) {
+    throw new Error(
+      `「${node.title}」被识别为系统目录。请重新「从浏览器同步」后再整理。`
+    );
+  }
+
+  assertNotRoot(bmId, '不能修改', node.title);
+  await chrome.bookmarks.update(bmId, { title: node.title, url: node.url });
+  if (parentId != null) {
+    await chrome.bookmarks.move(bmId, {
+      parentId: String(parentId),
+      index,
+    });
+  }
+  if (onNodeDone) onNodeDone();
 }
 
 export function isRootFolderNode(node) {
   return node?.type === 'folder' && isChromeRootFolder(node.chromeId);
-}
-
-export async function updateChromeBookmark(node) {
-  if (!node.chromeId) return;
-  if (isChromeRootFolder(node.chromeId)) return;
-  if (node.type === 'folder') {
-    await chrome.bookmarks.update(String(node.chromeId), { title: node.title });
-  } else if (node.url) {
-    await chrome.bookmarks.update(String(node.chromeId), {
-      title: node.title,
-      url: node.url,
-    });
-  }
 }
