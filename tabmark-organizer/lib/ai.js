@@ -6,7 +6,7 @@ import {
   normalizeSettings,
 } from './providers.js';
 
-export { loadAiSettings, saveAiSettings, normalizeSettings, renameWithAi };
+export { loadAiSettings, saveAiSettings, normalizeSettings };
 
 const RENAME_SYSTEM_PROMPT = `你是浏览器书签重命名助手。用户会给你书签列表以及命名偏好要求。
 你的唯一任务是为每个书签生成更好的标题（title），严禁做任何其他改动。
