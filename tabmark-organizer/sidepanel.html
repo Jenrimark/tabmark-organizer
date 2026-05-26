@@ -26,6 +26,7 @@
       <input type="checkbox" id="chkAutoSync" checked />
       打开时自动同步
     </label>
+    <button type="button" id="btnSelectAll" class="btn ghost btn-sm">全选</button>
     <button type="button" id="btnAi" class="btn accent">✦ AI 整理</button>
     <button type="button" id="btnRename" class="btn">✦ AI 重命名</button>
     <button type="button" id="btnApply" class="btn success">应用回浏览器</button>
@@ -149,6 +150,7 @@
     <form id="renameForm" method="dialog">
       <h2>AI 重命名书签</h2>
       <p class="hint">仅修改书签标题，不会改变文件夹结构和书签数量。</p>
+      <p id="renameScope" class="hint" style="color:var(--accent);margin-bottom:8px;"></p>
       <label>自定义命名要求
         <textarea id="renamePrompt" rows="4" placeholder="例如：&#10;用「分类 | 描述」格式命名&#10;标题末尾加关键词标签&#10;全部用中文"
           style="display:block;width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);resize:vertical;font-family:inherit;font-size:12px;"></textarea>

@@ -32,6 +32,9 @@ const STORAGE_KEY = 'workspaceTree';
 let tree = [];
 let selectedId = null;
 let dragId = null;
+let collapsedIds = new Set();
+let checkedIds = new Set();
+let hasExplicitSelection = false;
 
 const $ = (sel) => document.querySelector(sel);
 const treeRoot = $('#treeRoot');
@@ -108,11 +111,106 @@ async function loadWorkspace() {
   }
 }
 
+// ── Checkbox helpers ──
+function countBookmarks(nodes) {
+  let c = 0;
+  for (const n of nodes) {
+    if (n.type !== 'folder') c++;
+    if (n.children) c += countBookmarks(n.children);
+  }
+  return c;
+}
+
+function collectBookmarkIds(nodes, set = new Set()) {
+  for (const n of nodes) {
+    if (n.type !== 'folder') set.add(n.id);
+    if (n.children) collectBookmarkIds(n.children, set);
+  }
+  return set;
+}
+
+function getAllBookmarkIds() {
+  return collectBookmarkIds(tree);
+}
+
+function getCheckedBookmarkIds() {
+  if (!hasExplicitSelection) return getAllBookmarkIds();
+  const all = getAllBookmarkIds();
+  return new Set([...checkedIds].filter((id) => all.has(id)));
+}
+
+/** For AI operations: use checked items, or all if nothing explicitly checked */
+function getEffectiveBookmarkIds() {
+  if (!hasExplicitSelection) return getAllBookmarkIds();
+  const all = getAllBookmarkIds();
+  const checked = new Set([...checkedIds].filter((id) => all.has(id)));
+  if (checked.size === 0) return all; // explicit deselect-all → fallback to all
+  return checked;
+}
+
+function isEffectivelyChecked(nodeId) {
+  if (!hasExplicitSelection) return true; // default: all selected
+  return checkedIds.has(nodeId);
+}
+
+function updateSelectAllUI() {
+  const all = getAllBookmarkIds();
+  const btn = $('#btnSelectAll');
+  if (!btn) return;
+  if (!hasExplicitSelection) {
+    btn.textContent = '取消全选';
+  } else if (checkedIds.size === 0) {
+    btn.textContent = '全选';
+  } else {
+    btn.textContent = `已选 ${checkedIds.size}/${all.size}`;
+  }
+}
+
+function getDescendantIds(node) {
+  const ids = new Set();
+  if (node.children) {
+    for (const child of node.children) {
+      ids.add(child.id);
+      if (child.children) {
+        for (const id of getDescendantIds(child)) ids.add(id);
+      }
+    }
+  }
+  return ids;
+}
+
+function getParentNode(nodes, childId, parent = null) {
+  for (const n of nodes) {
+    if (n.id === childId) return parent;
+    if (n.children) {
+      const found = getParentNode(n.children, childId, n);
+      if (found !== undefined) return found;
+    }
+  }
+  return undefined;
+}
+
+function updateParentCheckState(nodeId) {
+  const parent = getParentNode(tree, nodeId);
+  if (!parent || parent.type !== 'folder') return;
+  const childIds = getDescendantIds(parent).size;
+  const checkedChildren = [...checkedIds].filter((id) => getDescendantIds(parent).has(id)).length;
+  if (checkedChildren === 0) {
+    checkedIds.delete(parent.id);
+  } else if (checkedChildren === childIds) {
+    checkedIds.add(parent.id);
+  } else {
+    checkedIds.delete(parent.id);
+  }
+  updateParentCheckState(parent.id);
+}
+
 function render() {
   treeRoot.innerHTML = '';
   emptyHint.hidden = tree.length > 0;
   tree.forEach((node) => treeRoot.appendChild(renderNode(node, 0)));
   updateBookmarkCountUI();
+  updateSelectAllUI();
 }
 
 function renderNode(node, depth) {
@@ -120,17 +218,59 @@ function renderNode(node, depth) {
   li.className = 'tree-item';
   li.dataset.id = node.id;
   li.setAttribute('role', 'treeitem');
-  li.setAttribute('aria-expanded', node.type === 'folder' ? 'true' : undefined);
 
   const isRoot = isRootFolderNode(node);
+  const isFolder = node.type === 'folder';
+  const isCollapsed = collapsedIds.has(node.id);
+
+  li.setAttribute('aria-expanded', isFolder ? String(!isCollapsed) : undefined);
 
   const row = document.createElement('div');
   row.className = 'tree-row' + (selectedId === node.id ? ' selected' : '') + (isRoot ? ' is-root' : '');
   row.draggable = !isRoot;
 
+  // Checkbox
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.className = 'tree-cb';
+  if (isRoot) {
+    cb.disabled = true;
+    cb.checked = true;
+  } else {
+    cb.checked = isEffectivelyChecked(node.id);
+    cb.addEventListener('change', () => {
+      // If no explicit selection yet, populate all first
+      if (!hasExplicitSelection) {
+        hasExplicitSelection = true;
+        for (const id of getAllBookmarkIds()) checkedIds.add(id);
+      }
+      const ids = isFolder ? getDescendantIds(node) : new Set([node.id]);
+      ids.add(node.id);
+      if (cb.checked) {
+        for (const id of ids) checkedIds.add(id);
+      } else {
+        for (const id of ids) checkedIds.delete(id);
+      }
+      updateParentCheckState(node.id);
+      render();
+    });
+  }
+
+  // Collapse toggle (folders only)
+  const toggle = document.createElement('span');
+  toggle.className = 'tree-toggle';
+  if (isFolder) {
+    toggle.textContent = isCollapsed ? '▶' : '▼';
+    toggle.addEventListener('click', () => {
+      if (isCollapsed) collapsedIds.delete(node.id);
+      else collapsedIds.add(node.id);
+      render();
+    });
+  }
+
   const icon = document.createElement('span');
   icon.className = 'icon';
-  icon.textContent = isRoot ? '🔒' : node.type === 'folder' ? '📁' : '🔖';
+  icon.textContent = isRoot ? '🔒' : isFolder ? '📁' : '🔖';
 
   const title = document.createElement('span');
   title.className = 'title';
@@ -148,13 +288,13 @@ function renderNode(node, depth) {
   actions.className = 'tree-actions';
   actions.innerHTML = `
     <button type="button" data-act="rename" title="重命名">✎</button>
-    ${node.type === 'folder' && !isRoot ? '<button type="button" data-act="add-folder" title="新建子文件夹">+</button>' : ''}
+    ${isFolder && !isRoot ? '<button type="button" data-act="add-folder" title="新建子文件夹">+</button>' : ''}
   `;
 
-  row.append(icon, title, url, actions);
+  row.append(cb, toggle, icon, title, url, actions);
   li.appendChild(row);
 
-  if (node.type === 'folder') {
+  if (isFolder && !isCollapsed) {
     const ul = document.createElement('ul');
     ul.className = 'tree-children';
     (node.children || []).forEach((child) => ul.appendChild(renderNode(child, depth + 1)));
@@ -167,7 +307,7 @@ function renderNode(node, depth) {
 
 function bindRowEvents(row, li, node, titleEl) {
   row.addEventListener('click', (e) => {
-    if (e.target.closest('button')) return;
+    if (e.target.closest('button') || e.target.closest('input[type="checkbox"]') || e.target.closest('.tree-toggle')) return;
     selectedId = node.id;
     render();
   });
@@ -260,6 +400,9 @@ async function pullFromBrowser(confirmOverwrite = true) {
   setStatus('正在从浏览器同步书签…', 'loading');
   showProgress(0);
   hideChangeInfo();
+  checkedIds.clear();
+  collapsedIds.clear();
+  hasExplicitSelection = false;
   $('#btnPull').disabled = true;
   try {
     tree = await syncFromBrowser();
@@ -290,6 +433,21 @@ $('#btnAddFolder').addEventListener('click', () => {
   render();
 });
 
+$('#btnSelectAll').addEventListener('click', () => {
+  const all = getAllBookmarkIds();
+  if (!hasExplicitSelection || checkedIds.size >= all.size) {
+    // Currently all selected → deselect all
+    hasExplicitSelection = true;
+    checkedIds = new Set();
+  } else {
+    // Some or none selected → select all
+    hasExplicitSelection = false;
+    checkedIds = new Set();
+  }
+  render();
+});
+
+// ── AI Organize ──
 $('#btnAi').addEventListener('click', async () => {
   if (!tree.length) {
     setStatus('请先点击「从浏览器同步」加载书签', 'error');
@@ -300,7 +458,8 @@ $('#btnAi').addEventListener('click', async () => {
   $('#btnAi').disabled = true;
   try {
     const settings = await loadAiSettings();
-    const flat = flattenTree(tree);
+    const targetTree = getSelectedSubtree();
+    const flat = flattenTree(targetTree);
     const urlMap = new Map(flat.map((x) => [x.url, x]));
     flat.forEach((x) => urlMap.set(x.id, x));
 
@@ -308,19 +467,8 @@ $('#btnAi').addEventListener('click', async () => {
     const baselineTree = cloneTree(tree);
     const aiResult = await organizeWithAi(flat, settings);
     const reorganized = buildFromAiStructure(aiResult, urlMap);
-    const topFolders = tree.filter((n) => n.type === 'folder' && n.chromeId);
-    const bar = topFolders.find(
-      (n) => n.title === '书签栏' || n.title === 'Bookmarks bar'
-    );
-    if (bar) {
-      bar.children = reorganized;
-      tree = topFolders.length ? topFolders : tree;
-    } else if (topFolders.length === 1) {
-      topFolders[0].children = reorganized;
-      tree = topFolders;
-    } else {
-      tree = reorganized;
-    }
+
+    applyResultToTree(reorganized);
 
     // 先校验变更（不补回缺失书签），展示给用户
     const check = validateBookmarkIntegrity(tree, baseline);
@@ -351,6 +499,72 @@ $('#btnAi').addEventListener('click', async () => {
   }
 });
 
+// ── Selected subtree for AI operations ──
+function getSelectedSubtree() {
+  const checked = getEffectiveBookmarkIds();
+  const all = getAllBookmarkIds();
+  // All selected → use full tree
+  if (checked.size >= all.size) return tree;
+
+  function filterNodes(nodes) {
+    const result = [];
+    for (const node of nodes) {
+      if (node.type === 'folder') {
+        const filteredChildren = filterNodes(node.children || []);
+        if (filteredChildren.length > 0) {
+          result.push({ ...node, children: filteredChildren });
+        }
+      } else if (checked.has(node.id)) {
+        result.push({ ...node });
+      }
+    }
+    return result;
+  }
+  return filterNodes(tree);
+}
+
+function applyResultToTree(reorganized) {
+  const checked = getEffectiveBookmarkIds();
+  const all = getAllBookmarkIds();
+  const isPartial = checked.size > 0 && checked.size < all.size;
+
+  if (!isPartial) {
+    // Full tree replace
+    const topFolders = tree.filter((n) => n.type === 'folder' && n.chromeId);
+    const bar = topFolders.find(
+      (n) => n.title === '书签栏' || n.title === 'Bookmarks bar'
+    );
+    if (bar) {
+      bar.children = reorganized;
+      tree = topFolders.length ? topFolders : tree;
+    } else if (topFolders.length === 1) {
+      topFolders[0].children = reorganized;
+      tree = topFolders;
+    } else {
+      tree = reorganized;
+    }
+    return;
+  }
+
+  // Partial: replace only selected bookmarks in their original positions
+  const checkedSet = checked;
+  const newFlat = flattenTree(reorganized);
+  const urlToNew = new Map(newFlat.map((x) => [x.url, x]));
+
+  function applyToNodes(nodes) {
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      if (node.type === 'folder') {
+        applyToNodes(node.children || []);
+      } else if (checkedSet.has(node.id) && urlToNew.has(node.url)) {
+        const updated = urlToNew.get(node.url);
+        node.title = updated.title;
+      }
+    }
+  }
+  applyToNodes(tree);
+}
+
 // ── Change Info Panel ──
 let preAiTree = null;
 
@@ -362,6 +576,9 @@ $('#btnRename').addEventListener('click', () => {
   }
   hideChangeInfo();
   $('#renamePrompt').value = '';
+  const effective = getEffectiveBookmarkIds();
+  const count = effective.size;
+  $('#renameScope').textContent = `将重命名 ${count} 条书签`;
   $('#renameDialog').showModal();
 });
 
@@ -375,29 +592,20 @@ $('#renameForm').addEventListener('submit', async (e) => {
   $('#btnRename').disabled = true;
   try {
     const settings = await loadAiSettings();
-    const flat = flattenTree(tree);
+    const targetTree = getSelectedSubtree();
+    const flat = flattenTree(targetTree);
     const result = await renameWithAi(flat, settings, customPrompt);
     const renames = result.renames || [];
 
-    // 校验输出数量与输入一致
-    if (renames.length !== flat.length) {
-      throw new Error(`AI 返回 ${renames.length} 条，但输入有 ${flat.length} 条书签，数量不匹配，已取消操作`);
-    }
-
-    // 校验所有 URL 都在原列表中，且无遗漏
-    const inputUrlSet = new Set(flat.map((x) => x.url));
+    // Build url→title map, silently keep first occurrence on duplicates
     const renameMap = new Map();
     for (const r of renames) {
-      if (!inputUrlSet.has(r.url)) {
-        throw new Error(`AI 返回了未知 URL: ${r.url}，已取消操作`);
+      if (r.url && !renameMap.has(r.url)) {
+        renameMap.set(r.url, r.title);
       }
-      if (renameMap.has(r.url)) {
-        throw new Error(`AI 重复返回 URL: ${r.url}，已取消操作`);
-      }
-      renameMap.set(r.url, r.title);
     }
 
-    // 只更新 title，不动任何结构
+    // Only update titles, no structure changes
     let changed = 0;
     (function applyRenames(nodes) {
       for (const node of nodes) {

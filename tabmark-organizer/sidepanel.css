@@ -243,6 +243,26 @@ body {
 .tree-row.is-root .tree-actions [data-act="rename"] { display: none; }
 
 .tree-row .icon { width: 16px; text-align: center; flex-shrink: 0; font-size: 12px; }
+
+.tree-cb {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.tree-cb:disabled { opacity: 0.3; cursor: default; }
+
+.tree-toggle {
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.tree-toggle:hover { color: var(--text); }
 .tree-row .title {
   flex: 1;
   min-width: 0;
