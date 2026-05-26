@@ -27,6 +27,7 @@
       打开时自动同步
     </label>
     <button type="button" id="btnAi" class="btn accent">✦ AI 整理</button>
+    <button type="button" id="btnRename" class="btn">✦ AI 重命名</button>
     <button type="button" id="btnApply" class="btn success">应用回浏览器</button>
   </section>
 
@@ -140,6 +141,22 @@
         <button type="button" id="btnKeepAll" class="btn ghost" hidden>全部保留</button>
         <button type="button" id="btnCancelApply" class="btn ghost">取消</button>
         <button type="submit" class="btn success" id="btnConfirmApply">确认应用</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="renameDialog">
+    <form id="renameForm" method="dialog">
+      <h2>AI 重命名书签</h2>
+      <p class="hint">仅修改书签标题，不会改变文件夹结构和书签数量。</p>
+      <label>自定义命名要求
+        <textarea id="renamePrompt" rows="4" placeholder="例如：&#10;用「分类 | 描述」格式命名&#10;标题末尾加关键词标签&#10;全部用中文"
+          style="display:block;width:100%;margin-top:4px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);resize:vertical;font-family:inherit;font-size:12px;"></textarea>
+        <span class="field-hint">描述你想要的命名风格，留空则使用默认规则</span>
+      </label>
+      <div class="dialog-actions">
+        <button type="button" id="btnCancelRename" class="btn ghost">取消</button>
+        <button type="submit" class="btn accent" id="btnConfirmRename">开始重命名</button>
       </div>
     </form>
   </dialog>

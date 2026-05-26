@@ -13,7 +13,7 @@ import {
   isRootFolderNode,
   refreshRootFolderIds,
 } from './lib/bookmarks.js';
-import { organizeWithAi, loadAiSettings, saveAiSettings, testAiConnection } from './lib/ai.js';
+import { organizeWithAi, renameWithAi, loadAiSettings, saveAiSettings, testAiConnection } from './lib/ai.js';
 import {
   generateProviderId,
   getBuiltinProvider,
@@ -353,6 +353,74 @@ $('#btnAi').addEventListener('click', async () => {
 
 // ── Change Info Panel ──
 let preAiTree = null;
+
+// ── AI Rename ──
+$('#btnRename').addEventListener('click', () => {
+  if (!tree.length) {
+    setStatus('请先点击「从浏览器同步」加载书签', 'error');
+    return;
+  }
+  hideChangeInfo();
+  $('#renamePrompt').value = '';
+  $('#renameDialog').showModal();
+});
+
+$('#btnCancelRename').addEventListener('click', () => $('#renameDialog').close());
+
+$('#renameForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const customPrompt = $('#renamePrompt').value.trim();
+  $('#renameDialog').close();
+  setStatus('AI 正在重命名书签…', 'loading');
+  $('#btnRename').disabled = true;
+  try {
+    const settings = await loadAiSettings();
+    const flat = flattenTree(tree);
+    const result = await renameWithAi(flat, settings, customPrompt);
+    const renames = result.renames || [];
+
+    // 校验输出数量与输入一致
+    if (renames.length !== flat.length) {
+      throw new Error(`AI 返回 ${renames.length} 条，但输入有 ${flat.length} 条书签，数量不匹配，已取消操作`);
+    }
+
+    // 校验所有 URL 都在原列表中，且无遗漏
+    const inputUrlSet = new Set(flat.map((x) => x.url));
+    const renameMap = new Map();
+    for (const r of renames) {
+      if (!inputUrlSet.has(r.url)) {
+        throw new Error(`AI 返回了未知 URL: ${r.url}，已取消操作`);
+      }
+      if (renameMap.has(r.url)) {
+        throw new Error(`AI 重复返回 URL: ${r.url}，已取消操作`);
+      }
+      renameMap.set(r.url, r.title);
+    }
+
+    // 只更新 title，不动任何结构
+    let changed = 0;
+    (function applyRenames(nodes) {
+      for (const node of nodes) {
+        if (node.url && renameMap.has(node.url)) {
+          const newTitle = renameMap.get(node.url);
+          if (newTitle && newTitle !== node.title) {
+            node.title = newTitle;
+            changed++;
+          }
+        }
+        if (node.children) applyRenames(node.children);
+      }
+    })(tree);
+
+    await saveWorkspace();
+    render();
+    setStatus(`AI 重命名完成，更新了 ${changed} 个书签标题`, 'ok');
+  } catch (err) {
+    setStatus(err.message, 'error');
+  } finally {
+    $('#btnRename').disabled = false;
+  }
+});
 
 function showChangeInfo(check, baselineTree) {
   preAiTree = baselineTree;
